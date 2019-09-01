@@ -8,6 +8,7 @@ You can edit this file as you like.
     [ "console"
     , "effect"
     , "enums"
+    , "exists"
     , "ordered-collections"
     , "psci-support"
     , "st"
