@@ -1,0 +1,5 @@
+*~
+.spago/
+.stack-work/
+output
+talk.cabal
