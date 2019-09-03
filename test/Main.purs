@@ -3,6 +3,7 @@ module Test.Main where
 import Prelude
 
 import Data.Lattice as L
+import Data.Lattice.Defined as D
 import Data.Tuple.Nested (type (/\))
 import Effect (Effect)
 import Test.Spec (Spec, describe, it)
@@ -18,10 +19,10 @@ instance testableAlias ∷ (Arbitrary t, Eq t, Show t) ⇒ Testable t
 main :: Effect Unit
 main = run [ consoleReporter ] do
   describe "Data.Lattice" do
-    describe "Unit" do jsl (Proxy ∷ Proxy            Unit)
-    describe "All"  do jsl (Proxy ∷ Proxy           L.All)
-    describe "Any"  do jsl (Proxy ∷ Proxy           L.Any)
-    describe "Pair" do jsl (Proxy ∷ Proxy (L.All /\ L.Any))
+    -- TODO: pick more interesting types than `Unit`.
+    describe "Unit"    do jsl (Proxy ∷ Proxy                               Unit )
+    describe "Defined" do jsl (Proxy ∷ Proxy                     (D.Defined Int))
+    describe "Pair"    do jsl (Proxy ∷ Proxy (D.Defined Int /\ D.Defined String))
 
 jsl ∷ ∀ t. L.JoinSemilattice t ⇒ Testable t ⇒  Proxy t → Spec Unit
 jsl _ = do

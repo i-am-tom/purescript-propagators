@@ -2,6 +2,8 @@ module Data.Lattice where
 
 import Data.Enum (class BoundedEnum, upFrom)
 import Data.Function (on)
+import Data.Monoid.Conj (Conj)
+import Data.Monoid.Disj (Disj)
 import Data.Newtype (class Newtype)
 import Data.Ord.Max (Max)
 import Data.Ord.Min (Min)
@@ -84,46 +86,19 @@ instance joinSemilatticeMin
     ⇒ JoinSemilattice (Min element) where
   order = flip compare
 
--- | "Any" is a reasonably standard monoid: `mempty` is `false`, and `append`
--- is `||`. We order things by saying that `true` is "greater than" `false`.
-newtype Any = Any Boolean
-
-derive instance newtypeAny ∷ Newtype Any _
-
-derive newtype instance arbitraryAny ∷ Arbitrary   Any
-derive newtype instance eqAny        ∷ Eq          Any
-derive newtype instance ordAny       ∷ Ord         Any
-derive newtype instance showAny      ∷ Show        Any
-
-instance semigroupAny ∷ Semigroup Any where
-  append (Any this) (Any that) = Any (this || that)
-
-instance monoidAny ∷ Monoid Any where
-  mempty = Any false
-
-instance joinSemilatticeAny ∷ JoinSemilattice Any where
-  order = compare
-
--- | "All" is the dual to `Any`. In other words, `mempty` is `true`, `append`
--- is `&&`, and `false` is "greater than" `true`.
-newtype All = All Boolean
-
-derive instance newtypeAll ∷ Newtype All _
-
-derive newtype instance arbitraryAll ∷ Arbitrary   All
-derive newtype instance eqAll        ∷ Eq          All
-derive newtype instance ordAll       ∷ Ord         All
-derive newtype instance showAll      ∷ Show        All
-
-
-instance semigroupAll ∷ Semigroup All where
-  append (All this) (All that) = All (this && that)
-
-instance monoidAll ∷ Monoid All where
-  mempty = All true
-
-instance joinSemilatticeAll ∷ JoinSemilattice All where
+instance joinSemilatticeConj
+    ∷ ( HeytingAlgebra element
+      , Ord element
+      )
+    ⇒ JoinSemilattice (Conj element) where
   order = flip compare
+
+instance joinSemilatticeDisj
+    ∷ ( HeytingAlgebra element
+      , Ord element
+      )
+    ⇒ JoinSemilattice (Disj element) where
+  order = compare
 
 -- | If `this` _implies_ `that`, we mean appending `this` to `that` will not
 -- change `this`. In our domain, what we're really saying is that `that` won't
