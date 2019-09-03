@@ -1,7 +1,11 @@
 module Data.Propagator.Cell where
 
+import Control.Monad.ST (ST)
+import Control.Monad.ST.Ref (STRef)
+import Control.Monad.ST.Ref as ST
+import Control.Monad.ST.Internal (kind Region)
+import Data.Lattice (class JoinSemilattice, implies)
 import Prelude
-import Data.Lattice (class JoinSemilattice)
 
 -- | `MonadCell` is the set of primitives we require in order to specify a
 -- propagator network within our monad of choice. Note that this API is quite
@@ -16,7 +20,7 @@ class Monad context ⇐ MonadCell (cell ∷ Type → Type) (context ∷ Type →
 
   -- | Make a new cell with `mempty` ("bottom" in lattice-speak) contents. Its
   -- initial state should have no observers.
-  make ∷ ∀ content. context (cell content)
+  make ∷ ∀ content. JoinSemilattice content ⇒ context (cell content)
 
   -- | Read from a cell. Any non-`mempty` result implies that something has
   -- been written to this cell successfully.
@@ -122,3 +126,40 @@ watch2
 watch2 this that onChange = do
   watch this \x → watch that \y → onChange x y
   watch that \y → watch this \x → onChange x y
+
+-------------------------------------------------------------------------------
+
+newtype Cell (region ∷ Region) (content ∷ Type)
+  = Cell
+      ( STRef region
+          { content  ∷ content
+          , onChange ∷ content → ST region Unit
+          }
+      )
+
+instance monadCellST ∷ MonadCell (Cell r) (ST r) where
+  make = map Cell (ST.new { content: mempty, onChange: \_ → pure unit })
+  read (Cell cell) = map _.content (ST.read cell)
+
+  watch (Cell cell) callback = do
+    before@{ content, onChange } ← ST.read cell
+
+    _ ← cell # ST.modify _
+      { onChange = \new → do
+          callback new
+          before.onChange new
+      }
+
+    callback content
+
+  write (Cell cell) next = do
+    before@{ content, onChange } ← ST.read cell
+
+    unless (content `implies` next) do
+      let joined = content <> next
+
+      _ ← cell # ST.modify _
+        { content = joined
+        }
+
+      onChange joined
