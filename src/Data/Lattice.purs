@@ -115,4 +115,4 @@ implies
   → Boolean
 
 implies this that
-  = order this (this <> that) == GT
+  = order this (this <> that) /= LT
