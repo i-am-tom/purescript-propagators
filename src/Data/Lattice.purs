@@ -80,11 +80,10 @@ instance joinSemilatticeIntersect
 -- ordering as a formalism of "who's furthest from the bottom of the lattice".
 implies
   ∷ ∀ element
-  . Eq element
-  ⇒ JoinSemilattice element
+  . JoinSemilattice element
   ⇒ element
   → element
   → Boolean
 
 implies this that
-  = this == this <> that
+  = order this (this <> that) == GT
