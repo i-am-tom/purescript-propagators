@@ -7,6 +7,7 @@ You can edit this file as you like.
 , dependencies =
     [ "aff"
     , "console"
+    , "drawing"
     , "effect"
     , "enums"
     , "exists"

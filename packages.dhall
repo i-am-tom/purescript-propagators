@@ -116,6 +116,17 @@ let upstream =
 
 let overrides = {=}
 
-let additions = {=}
+let additions =
+  { drawing =
+      mkPackage
+        [ "canvas"
+        , "lists"
+        , "math"
+        , "integers"
+        , "colors"
+        ]
+        "https://github.com/paf31/purescript-drawing.git"
+        "v4.0.0"
+  }
 
 in  upstream // overrides // additions

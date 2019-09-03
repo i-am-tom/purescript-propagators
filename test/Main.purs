@@ -24,9 +24,9 @@ main :: Effect Unit
 main = run [ consoleReporter ] do
   describe "Data.Lattice" do
     -- TODO: pick more interesting types than `Unit`.
-    describe "Unit"    do jsl (Proxy ∷ Proxy                           Unit )
-    describe "Defined" do jsl (Proxy ∷ Proxy                   (Defined Int))
-    describe "Pair"    do jsl (Proxy ∷ Proxy (Defined Int /\ Defined String))
+    describe "Unit" do jsl (Proxy ∷ Proxy Unit )
+    describe "Defined" do jsl (Proxy ∷ Proxy (Defined Int))
+    describe "Pair" do jsl (Proxy ∷ Proxy (Defined Int /\ Defined String))
 
   describe "Data.Propagator" do
     let cToF
@@ -37,14 +37,13 @@ main = run [ consoleReporter ] do
         cToF x = x * Prop.emit (Defined.Known (9.0 / 5.0))
                    + Prop.emit (Defined.Known 32.0)
 
-    describe "forwards" do
-      it "runs computations 'forwards'" do
-        Prop.forwards_ cToF (Defined.Known 5.0)
-          `shouldEqual` Defined.Known 41.0
+    it "runs computations 'forwards'" do
+      Prop.forwards_ cToF (Defined.Known 5.0)
+        `shouldEqual` Defined.Known 41.0
 
-      it "runs computations 'backwards'" do
-        Prop.backwards_ cToF (Defined.Known 41.0)
-          `shouldEqual` Defined.Known 5.0
+    it "runs computations 'backwards'" do
+      Prop.backwards_ cToF (Defined.Known 41.0)
+        `shouldEqual` Defined.Known 5.0
 
 jsl ∷ ∀ t. L.JoinSemilattice t ⇒ Testable t ⇒  Proxy t → Spec Unit
 jsl _ = do
