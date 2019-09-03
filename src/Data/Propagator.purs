@@ -1,9 +1,10 @@
 module Data.Propagator where
 
-import Data.HeytingAlgebra (tt, ff, implies)
+import Control.Monad.ST (ST, run)
 import Data.Exists (Exists, mkExists, runExists)
+import Data.HeytingAlgebra (tt, ff, implies)
 import Data.Lattice (class JoinSemilattice)
-import Data.Propagator.Cell (class MonadCell)
+import Data.Propagator.Cell (class MonadCell, Cell)
 import Data.Propagator.Cell as Cell
 import Prelude
 import Unsafe.Coerce (unsafeCoerce)
@@ -45,20 +46,30 @@ data Propagator (context ∷ Type → Type) (cell ∷ Type → Type) (output ∷
 -- | A non-existential Unary propagator has two cells, which we've crudely
 -- named "input" and "output" (though, as we will see, these names are
 -- meaningless in a lot of cases).
+--
+-- Note that we provide a pre-made cell for this, as the absence of GADTs means
+-- we can't package up a proof of `JoinSemilattice output`. Given that this only
+-- causes a problem in `lower` when we want to make an output cell, we just
+-- include the output cell in the constructor.
 data Unary_ context cell output input
   = Unary_ (cell input → cell output → context Unit)
+           (context (cell output))
            (Propagator context cell input)
 
 -- | A non-existential Binary propagator, which we can use to express a
 -- relationship between three cells. We call it "binary" to adhere to the
 -- traditional intuition of a binary function having "two inputs", rather than
 -- being a relationship between "three values".
+--
+-- Again, we must include this pre-made output cell to avoid the problems
+-- caused by an absence of `JoinSemilattice output` proof.
 data Binary_ context cell output this that
   = Binary_ (cell this → cell that → cell output → context Unit)
-            (Propagator context cell this)
+            (context (cell output))
+            (Propagator context cell this) 
             (Propagator context cell that)
 
--- | Short-hand for construction of a ullary propagator. This doesn't need to
+-- | Short-hand for construction of a nullary propagator. This doesn't need to
 -- exist as this is an alias for the Nullary constructor, but it's here for
 -- consistency.
 nullary
@@ -68,26 +79,32 @@ nullary
 
 nullary = Nullary
 
--- | Short-hand for construction of a unary propagator. This existentialises
--- the "input" cell.
+-- | Short-hand for construction of a unary propagator. This gives us a way of
+-- lifting a two-cell relationship into a propagator.
 unary
   ∷ ∀ context cell input output
-  . (cell input → cell output → context Unit)
+  . JoinSemilattice output
+  ⇒ MonadCell cell context
+  ⇒ (cell input → cell output → context Unit)
   → Propagator context cell input
   → Propagator context cell output
 
-unary go = Unary <<< mkExists <<< Unary_ go
+unary go = Unary <<< mkExists <<< Unary_ go Cell.make
 
--- | Short-hand for construction of a binary propagator. This takes both
--- "input" cells and existentialises them away.
+-- | Short-hand for construction of a binary propagator. With `unary` and
+-- `binary`, we have enough vocabulary to express relationships between any
+-- number of cells.
 binary
   ∷ ∀ context cell this that output
-  . (cell this → cell that → cell output → context Unit)
+  . JoinSemilattice output
+  ⇒ MonadCell cell context
+  ⇒ (cell this → cell that → cell output → context Unit)
   → Propagator context cell this
   → Propagator context cell that
   → Propagator context cell output
 
-binary go this that = Binary (mkExists2 (Binary_ go this that))
+binary go this that
+  = Binary (mkExists2 (Binary_ go Cell.make this that))
 
 instance semiringPropagator
     ∷ ( Eq content
@@ -251,21 +268,33 @@ lower = case _ of
   Nullary emitter → emitter
 
   Unary existential → do
-    existential # runExists \(Unary_ f propagator) → do
-      output ← Cell.make
+    existential # runExists \(Unary_ f cell propagator) → do
+      output ← cell
       input  ← lower propagator
 
       f input output
       pure output
 
   Binary existential → do
-    existential # runExists2 \(Binary_ f this that) → do
-      c ← Cell.make
+    existential # runExists2 \(Binary_ f cell this that) → do
+      c ← cell
       a ← lower this
       b ← lower that
 
       f a b c
       pure c
+
+-- | We can lift any value into a propagator context by first creating a cell,
+-- and then raising that cell into a nullary propagator. This is helpful, for
+-- example, when we come to numerical constants.
+emit
+  ∷ ∀ cell content context
+  . JoinSemilattice content
+  ⇒ MonadCell cell context
+  ⇒ content
+  → Propagator context cell content
+
+emit = Nullary <<< Cell.fill
 
 -- | Given a function between propagators, we can "raise" a cell with the input
 -- inside and read the output cell (gleaned from lowering the resultant
@@ -274,9 +303,8 @@ forwards
   ∷ ∀ cell context this that
   . JoinSemilattice this
   ⇒ MonadCell cell context
-  ⇒ ( ∀ context'
-    . Propagator context' cell this
-    → Propagator context' cell that
+  ⇒ ( Propagator context cell this
+    → Propagator context cell that
     )
   → this
   → context that
@@ -288,12 +316,13 @@ forwards f value = do
   Cell.write input value
   Cell.read  output
 
--- | For more interestingly, however, we can "raise" a cell with the /output/
+-- | Far more interestingly, however, we can "raise" a cell with the /output/
 -- inside and read the input cell, as long as our computation's relationships
 -- are bidirectional (for example, an arithmetic calculation).
 backwards
   ∷ ∀ cell context this that
-  . JoinSemilattice that
+  . JoinSemilattice this
+  ⇒ JoinSemilattice that
   ⇒ MonadCell cell context
   ⇒ ( Propagator context cell this
     → Propagator context cell that
@@ -308,29 +337,36 @@ backwards f value = do
   Cell.write output value
   Cell.read  input
 
--- forwards_
---   ∷ ∀ this that
---   . JoinSemilattice this
---   ⇒ ( ∀ r
---     . Propagator (ST r) (Cell r) this
---     → Propagator (ST r) (Cell r) that
---     )
---   → this
---   → that
--- 
--- forwards_  f x = runST (forwards f x)
+-- | Specialising `context` to `ST r` means we can run the computation and
+-- remove the context entirely.
+forwards_
+  ∷ ∀ this that
+  . JoinSemilattice this
+  ⇒ ( ∀ r
+    . Propagator (ST r) (Cell r) this
+    → Propagator (ST r) (Cell r) that
+    )
+  → this
+  → that
 
--- backwards_
---   ∷ ∀ this that
---   . JoinSemilattice that
---   ⇒ ( ∀ r
---     . Propagator (ST r) (Cell r) this
---     → Propagator (ST r) (Cell r) that
---     )
---   → that
---   → this
--- 
--- backwards_ f x = runST (forwards f x)
+forwards_ f x = run (forwards f x)
+
+-- | Similarly, `ST r` allows us to write this function that _seems_ to run a
+-- function in reverse. In reality, the relationship between "input" and
+-- "output" has no real direction, so there's nothing more special about this
+-- than `forwards_`. Still, it's a neat party trick.
+backwards_
+  ∷ ∀ this that
+  . JoinSemilattice this
+  ⇒ JoinSemilattice that
+  ⇒ ( ∀ r
+    . Propagator (ST r) (Cell r) this
+    → Propagator (ST r) (Cell r) that
+    )
+  → that
+  → this
+
+backwards_ f x = run (backwards f x)
 
 -------------------------------------------------------------------------------
 
