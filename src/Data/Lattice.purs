@@ -11,7 +11,6 @@ import Data.Set (Set)
 import Data.Set as Set
 import Data.Tuple.Nested (type (/\), (/\))
 import Prelude
-import Test.QuickCheck (class Arbitrary)
 
 -- | A join semilattice is a monoid whose `mappend` is both idempotent and
 -- commutative. We often visualise this with a Hasse diagram, but don't worry

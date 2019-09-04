@@ -2,16 +2,17 @@ module Test.Main where
 
 import Prelude
 
+import Data.Int as Int
 import Data.Lattice as L
 import Data.Lattice.Defined (Defined)
 import Data.Lattice.Defined as Defined
-import Data.Propagator as Prop
-import Data.Propagator.Cell as Cell
+import Data.Propagator (Propagator)
+import Data.Propagator as Propagator
+import Data.Propagator.Cell (class MonadCell)
 import Data.Tuple.Nested (type (/\))
 import Effect (Effect)
 import Test.QuickCheck (class Arbitrary, (===), (/==))
 import Test.Spec (Spec, describe, it)
-import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.QuickCheck (quickCheck)
 import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner (run)
@@ -29,21 +30,33 @@ main = run [ consoleReporter ] do
     describe "Pair" do jsl (Proxy ∷ Proxy (Defined Int /\ Defined String))
 
   describe "Data.Propagator" do
-    let cToF
-          ∷ ∀ m c
-          . Cell.MonadCell c m
-          ⇒ Prop.Propagator m c (Defined Number)
-          → Prop.Propagator m c (Defined Number)
-        cToF x = x * Prop.emit (Defined.Known (9.0 / 5.0))
-                   + Prop.emit (Defined.Known 32.0)
+    -- It's a bit ugly without the polymorphic numbers that Haskell enjoys...
+    let celsiusToFahrenheit ∷ ∀ c m
+                            . MonadCell c m
+                            ⇒ Propagator m c (Defined Number)
+                            → Propagator m c (Defined Number)
+        celsiusToFahrenheit x
+          = x * Propagator.emit (Defined.Known  9.0)
+              / Propagator.emit (Defined.Known  5.0)
+              + Propagator.emit (Defined.Known 32.0)
 
-    it "runs computations 'forwards'" do
-      Prop.forwards_ cToF (Defined.Known 5.0)
-        `shouldEqual` Defined.Known 41.0
+    it "executes 'forwards'" $ quickCheck \x → do
+      let input = Int.toNumber x
 
-    it "runs computations 'backwards'" do
-      Prop.backwards_ cToF (Defined.Known 41.0)
-        `shouldEqual` Defined.Known 5.0
+          result
+            = Propagator.forwards_ celsiusToFahrenheit
+            $ Defined.Known input
+
+      result === Defined.Known (input * 9.0 / 5.0 + 32.0)
+
+    it "executes 'backwards'" $ quickCheck \x → do
+      let output = Int.toNumber x
+
+          result
+            = Propagator.backwards_ celsiusToFahrenheit
+            $ Defined.Known output
+
+      result === Defined.Known ((output - 32.0) * 5.0 / 9.0)
 
 jsl ∷ ∀ t. L.JoinSemilattice t ⇒ Testable t ⇒  Proxy t → Spec Unit
 jsl _ = do
