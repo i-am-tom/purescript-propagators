@@ -1,4 +1,4 @@
-module Test.Trace.Context where
+module Visual.Trace.Context where
 
 import Data.Newtype (class Newtype)
 

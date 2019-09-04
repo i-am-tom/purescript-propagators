@@ -1,4 +1,4 @@
-module Test.Trace where
+module Visual.Trace where
 
 import Control.Apply (lift2)
 import Control.Monad.ST (ST)
@@ -17,8 +17,8 @@ import Data.Newtype (over)
 import Data.Propagator.Cell as Cell
 import Global.Unsafe (unsafeStringify)
 import Prelude
-import Test.Trace.Context (Context (..))
-import Test.Trace.Event (Event (..))
+import Visual.Trace.Context (Context (..))
+import Visual.Trace.Event (Event (..))
 
 -- | The `Trace` monad is a working implementation of `MonadCell` with two
 -- important additions:
@@ -81,7 +81,7 @@ instance monadCellTrace ∷ Cell.MonadCell (Cell r) (Trace r) where
     ref ← promote $ ST.new { content: mempty, onChange: mempty }
 
     tell -- Log the creation.
-      [ Make { identifier }
+      [ Make identifier
       ]
 
     pure (Cell { identifier, ref })

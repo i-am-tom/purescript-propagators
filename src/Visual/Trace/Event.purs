@@ -1,4 +1,4 @@
-module Test.Trace.Event where
+module Visual.Trace.Event where
 
 import Data.Maybe (Maybe, maybe)
 import Prelude
@@ -20,7 +20,7 @@ data Event
   -- write, we can see which node the first watcher was watching. That's quite
   -- a sentence.
   | Write
-      { payload ∷ Drawing
+      { payload ∷ String
       , source  ∷ Array Int
       , target  ∷ Int
       }
