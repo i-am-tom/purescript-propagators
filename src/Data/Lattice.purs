@@ -1,16 +1,13 @@
 module Data.Lattice where
 
-import Data.Enum (class BoundedEnum, upFrom)
-import Data.Function (on)
-import Data.Monoid.Conj (Conj)
-import Data.Monoid.Disj (Disj)
-import Data.Newtype (class Newtype)
-import Data.Ord.Max (Max)
-import Data.Ord.Min (Min)
-import Data.Set (Set)
-import Data.Set as Set
+import Data.Monoid (class MonoidRecord)
+import Data.Symbol (class IsSymbol, SProxy (..))
 import Data.Tuple.Nested (type (/\), (/\))
 import Prelude
+import Prim.Row as Row
+import Prim.RowList (class RowToList, kind RowList, Cons, Nil)
+import Record as Record
+import Type.Data.RowList (RLProxy (..))
 
 -- | A join semilattice is a monoid whose `mappend` is both idempotent and
 -- commutative. We often visualise this with a Hasse diagram, but don't worry
@@ -44,60 +41,37 @@ instance joinSemilatticeTuple
   order (thisx /\ thisy) (thatx /\ thaty)
     = order thisx thatx <> order thisy thaty
 
--- | The default behaviour of sets as monoids is that `mappend` behaves as a
--- union. Thus, a value tells us /more/ than another if it has more elements.
-instance joinSemilatticeSet
-    ∷ Ord element
-    ⇒ JoinSemilattice (Set element) where
-  order = compare `on` Set.size
+class JoinSemilatticeRowlist (row ∷ # Type) (list ∷ RowList) where
+  orderRL ∷ RLProxy list → Record row → Record row → Ordering
 
--- | Set intersection works pretty much the same way as the above. We need a
--- newtype for this, though, as union is the "default" `Set` append behaviour.
-newtype Intersect (element ∷ Type) = Intersect (Set element)
+instance joinSemilatticeNil
+    ∷ JoinSemilatticeRowlist row Nil where
+  orderRL _ _ _ = EQ
 
-derive         instance newtypeIntersect ∷ Newtype (Intersect element) _
-derive newtype instance eqIntersect      ∷ Eq element ⇒ Eq (Intersect element)
-derive newtype instance ordIntersect     ∷ Ord element ⇒ Ord (Intersect element)
-
-instance semigroupIntersect
-    ∷ Ord element
-    ⇒ Semigroup (Intersect element) where
-  append (Intersect this) (Intersect that)
-    = Intersect (Set.intersection this that)
-
-instance monoidIntersect
-    ∷ BoundedEnum element
-    ⇒ Monoid (Intersect element) where
-  mempty = Intersect (Set.fromFoldable (upFrom bottom ∷ Array element))
-
-instance joinSemilatticeIntersect
-    ∷ BoundedEnum element
-    ⇒ JoinSemilattice (Intersect element) where
-  order = flip compare `on` \(Intersect set) → Set.size set
-
-instance joinSemilatticeMax
-    ∷ Bounded element
-    ⇒ JoinSemilattice (Max element) where
-  order = compare
-
-instance joinSemilatticeMin
-    ∷ Bounded element
-    ⇒ JoinSemilattice (Min element) where
-  order = flip compare
-
-instance joinSemilatticeConj
-    ∷ ( HeytingAlgebra element
-      , Ord element
+instance joinSemilatticeCons
+    ∷ ( IsSymbol key
+      , JoinSemilattice element
+      , JoinSemilatticeRowlist row tail
+      , Row.Cons key element other row
       )
-    ⇒ JoinSemilattice (Conj element) where
-  order = flip compare
+    ⇒ JoinSemilatticeRowlist row (Cons key element tail) where
+  orderRL _ this that
+    = order (Record.get label this ∷ element) (Record.get label that)
+        <> orderRL (RLProxy ∷ RLProxy tail) this that
+    where
+      label ∷ SProxy key
+      label = SProxy
 
-instance joinSemilatticeDisj
-    ∷ ( HeytingAlgebra element
-      , Ord element
+-- | Any record, being isomorphic to a product, is a semilattice if all its
+-- component parts are also semilattices. This lets us hold multiple pieces of
+-- related information within a cell.
+instance joinSemilatticeRecord
+    ∷ ( RowToList row list
+      , MonoidRecord list row row
+      , JoinSemilatticeRowlist row list
       )
-    ⇒ JoinSemilattice (Disj element) where
-  order = compare
+    ⇒ JoinSemilattice (Record row) where
+  order = orderRL (RLProxy ∷ RLProxy list)
 
 -- | If `this` _implies_ `that`, we mean appending `this` to `that` will not
 -- change `this`. In our domain, what we're really saying is that `that` won't
@@ -106,12 +80,5 @@ instance joinSemilatticeDisj
 -- There's one law here to bear in mind: if `this` implies `that`, then it
 -- should be the case that `order this that /= LT`. We can hence think of
 -- ordering as a formalism of "who's furthest from the bottom of the lattice".
-implies
-  ∷ ∀ element
-  . JoinSemilattice element
-  ⇒ element
-  → element
-  → Boolean
-
-implies this that
-  = order this (this <> that) /= LT
+implies ∷ ∀ element. JoinSemilattice element ⇒ element → element → Boolean
+implies this that = order this (this <> that) /= LT

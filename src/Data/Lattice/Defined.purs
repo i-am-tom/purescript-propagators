@@ -10,6 +10,12 @@ import Test.QuickCheck.Gen (elements)
 
 -- | The `Defined` type describes a value that we either know, don't know, or
 -- have conflicting information about.
+--
+-- The idea here is that, for simple computations, we simply want to know a
+-- value, and check whether all reports of this value be consistent. To that
+-- end, we have a very simple semilattice for doing exactly this. We can use
+-- `Known` to assert a value, and `Contradiction` keeps track of any
+-- inconsistences in the network.
 data Defined (element ∷ Type)
   = Unknown
   | Known element
@@ -45,11 +51,8 @@ instance semigroupDefined
     ∷ Ord element
     ⇒ Semigroup (Defined element) where
   append = case _, _ of
-    Unknown, that →
-      that
-
-    this, Unknown →
-      this
+    Unknown, that → that
+    this, Unknown → this
 
     Known this, Known that
       | this == that → Known this
@@ -65,13 +68,11 @@ instance semigroupDefined
       Contradiction that
 
 instance monoidDefined
-    ∷ Ord element
-    ⇒ Monoid (Defined element) where
+    ∷ Ord element ⇒ Monoid (Defined element) where
   mempty = Unknown
 
 instance joinSemilatticeDefined
-    ∷ Ord element
-    ⇒ JoinSemilattice (Defined element) where
+    ∷ Ord element ⇒ JoinSemilattice (Defined element) where
   order = case _, _ of
     Unknown,         Unknown → EQ
     Known _,         Known _ → EQ
@@ -83,8 +84,8 @@ instance joinSemilatticeDefined
     Contradiction _, _ → GT
     _, Contradiction _ → LT
 
-liftD2 ∷ ∀ a. Ord a ⇒ (a → a → a) → Defined a → Defined a → Defined a
-liftD2 f = case _, _ of
+binary ∷ ∀ a. Ord a ⇒ (a → a → a) → Defined a → Defined a → Defined a
+binary f = case _, _ of
   Known this,      Known that      → Known (f this that)
 
   Contradiction x, Contradiction y → Contradiction (x <> y)
@@ -106,23 +107,22 @@ instance euclideanRingDefined
       )
     ⇒ EuclideanRing (Defined element) where
   degree _ = 1
-  div      = liftD2 div
-  mod      = liftD2 mod
+  div      = binary div
+  mod      = binary mod
 
 instance ringDefined
     ∷ ( Ord element
       , Ring element
       )
     ⇒ Ring (Defined element) where
-  sub = liftD2 sub
+  sub = binary sub
 
 instance semiringDefined
     ∷ ( Ord element
       , Semiring element
       )
     ⇒ Semiring (Defined element) where
-  add = liftD2 add
-  mul = liftD2 mul
-
+  add  = binary add
+  mul  = binary mul
   one  = Known one
   zero = Known zero
