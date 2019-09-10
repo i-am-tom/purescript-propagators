@@ -1,40 +1,32 @@
 module Data.Lattice.Union where
 
-import Data.Lattice (class JoinSemilattice)
+import Data.Semilattice.Join (class JoinSemilattice)
 import Data.Newtype (class Newtype)
 import Data.Set (Set)
 import Data.Set as Set
 import Prelude
 import Test.QuickCheck (class Arbitrary, arbitrary)
 
--- | Let's imagine we're in a real-life game of Cluedo. There are two ways to
--- solve the mystery (and the other one is described in `Intersection`), but
--- we'll focus one one of them for now:
---
--- We can start by saying we know _nothing_, and collect facts as they are
--- established. The bottom of the `Union` lattice is an empty set: we have
--- nothing that we know. As we ascend the lattice, this is analogous to
--- "learning more facts".
-newtype Union (element ∷ Type)
-  = Union (Set element)
+newtype Union (x ∷ Type)
+  = Union (Set x)
 
-derive         instance newtypeUnion   ∷ Newtype (Union element) _
-derive newtype instance eqUnion        ∷ Eq element   ⇒ Eq (Union element)
-derive newtype instance ordUnion       ∷ Ord element  ⇒ Ord (Union element)
-derive newtype instance showUnion      ∷ Show element ⇒ Show (Union element)
-derive newtype instance semigroupUnion ∷ Ord element  ⇒ Semigroup (Union element)
-derive newtype instance monoidUnion    ∷ Ord element  ⇒ Monoid (Union element)
+singleton ∷ ∀ x. Ord x ⇒ x → Union x
+singleton = Union <<< Set.singleton
 
-instance joinSemilatticeUnion
-    ∷ Ord element ⇒ JoinSemilattice (Union element) where
-  order (Union this) (Union that)
-    = compare (Set.size this) (Set.size that)
+member ∷ ∀ x. Ord x ⇒ x → Union x → Boolean
+member x (Union xs) = Set.member x xs
 
-instance arbitraryUnion
-    ∷ ( Arbitrary element
-      , Ord element
-      )
-    ⇒ Arbitrary (Union element) where
+derive instance newtypeUnion ∷ Newtype (Union x) _
+derive newtype instance eqUnion ∷ Eq x ⇒ Eq (Union x)
+derive newtype instance monoidUnion ∷ Ord x ⇒ Monoid (Union x)
+derive newtype instance ordUnion ∷ Ord x ⇒ Ord (Union x)
+derive newtype instance semigroupUnion ∷ Ord x ⇒ Semigroup (Union x)
+derive newtype instance showUnion ∷ Show x ⇒ Show (Union x)
+
+instance joinSemilatticeUnion ∷ Ord x ⇒ JoinSemilattice (Union x) where
+  order (Union this) (Union that) = compare (Set.size this) (Set.size that)
+
+instance arbitraryUnion ∷ (Arbitrary x, Ord x) ⇒ Arbitrary (Union x) where
   arbitrary = do
-    elements ∷ Array element ← arbitrary
-    pure (Union (Set.fromFoldable elements))
+    xs ∷ Array x ← arbitrary
+    pure (Union (Set.fromFoldable xs))

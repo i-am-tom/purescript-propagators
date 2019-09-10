@@ -2,20 +2,21 @@ module Data.Lattice.Min
   ( Min (..)
   ) where
 
-import Data.Lattice (class JoinSemilattice)
+import Data.Enum (class BoundedEnum, class Enum)
+import Data.Semilattice.Join (class JoinSemilattice)
 import Data.Newtype (class Newtype)
 import Prelude
 import Test.QuickCheck (class Arbitrary, arbitrary)
 
--- | The `Min` lattice keeps track of the "smallest" value it has seen so far.
--- This might make sense, for example, if you're looking to minimise an error
--- margin.
 newtype Min (element ∷ Type) = Min element
 
-derive         instance newtypeMin ∷ Newtype (Min element) _
-derive newtype instance eqMin      ∷ Eq   element ⇒ Eq   (Min element)
-derive newtype instance ordMin     ∷ Ord  element ⇒ Ord  (Min element)
-derive newtype instance showMin    ∷ Show element ⇒ Show (Min element)
+derive         instance newtypeMin     ∷ Newtype (Min element) _
+derive newtype instance eqMin          ∷ Eq      element     ⇒ Eq          (Min element)
+derive newtype instance ordMin         ∷ Ord     element     ⇒ Ord         (Min element)
+derive newtype instance showMin        ∷ Show    element     ⇒ Show        (Min element)
+derive newtype instance enumMin        ∷ Enum    element     ⇒ Enum        (Min element)
+derive newtype instance boundedMin     ∷ Bounded element     ⇒ Bounded     (Min element)
+derive newtype instance boundedEnumMin ∷ BoundedEnum element ⇒ BoundedEnum (Min element)
 
 instance semigroupMin
     ∷ Ord element ⇒ Semigroup (Min element) where

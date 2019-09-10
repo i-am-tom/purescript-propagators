@@ -1,21 +1,13 @@
 module Data.Lattice.Defined where
 
-import Data.Lattice (class JoinSemilattice)
-import Data.NonEmpty ((:|))
+import Data.Semilattice.Join (class JoinSemilattice)
+import Data.NonEmpty ((:|), NonEmpty)
 import Data.Set (Set)
 import Data.Set as Set
 import Prelude
 import Test.QuickCheck (class Arbitrary, arbitrary)
 import Test.QuickCheck.Gen (elements)
 
--- | The `Defined` type describes a value that we either know, don't know, or
--- have conflicting information about.
---
--- The idea here is that, for simple computations, we simply want to know a
--- value, and check whether all reports of this value be consistent. To that
--- end, we have a very simple semilattice for doing exactly this. We can use
--- `Known` to assert a value, and `Contradiction` keeps track of any
--- inconsistences in the network.
 data Defined (element ∷ Type)
   = Unknown
   | Known element
@@ -26,6 +18,15 @@ instance eqDefined ∷ Eq element ⇒ Eq (Defined element) where
   eq (Known x        ) (Known y        ) = x == y
   eq (Contradiction _) (Contradiction _) = true
   eq  _                 _                = false
+
+instance ordDefined ∷ Ord element ⇒ Ord (Defined element) where
+  compare (Unknown        ) (Unknown        ) = EQ
+  compare (Unknown        )  _                = LT
+  compare _                 (Unknown        ) = GT
+  compare (Known x        ) (Known y        ) = compare x y
+  compare (Contradiction _) (Contradiction _) = EQ
+  compare (Contradiction _)  _                = GT
+  compare _                 (Contradiction _) = LT
 
 instance showDefined ∷ Show element ⇒ Show (Defined element) where
   show = case _ of
@@ -39,8 +40,8 @@ instance arbitraryDefined
       )
     ⇒ Arbitrary (Defined element) where
   arbitrary = do
-    content                  ← arbitrary
-    failures ∷ Array element ← arbitrary
+    content                           ← arbitrary
+    failures ∷ NonEmpty Array element ← arbitrary
 
     elements $ Unknown :|
       [ Known content
@@ -92,14 +93,24 @@ binary f = case _, _ of
   Contradiction x, _               → Contradiction  x
   _,               Contradiction y → Contradiction       y
 
-  Unknown,         _               → Unknown
-  _,               Unknown         → Unknown
+  Unknown,         that            → that
+  this,            Unknown         → this
 
 instance commutativeRingDefined
   ∷ ( CommutativeRing element
     , Ord element
     )
   ⇒ CommutativeRing (Defined element)
+
+instance divisionRingDefined
+    ∷ ( DivisionRing element
+      , Ord element
+      )
+    ⇒ DivisionRing (Defined element) where
+  recip = case _ of
+    Known x         → Known (recip x)
+    Unknown         → Unknown
+    Contradiction x → Contradiction x
 
 instance euclideanRingDefined
     ∷ ( EuclideanRing element

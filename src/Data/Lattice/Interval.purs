@@ -1,19 +1,11 @@
 module Data.Lattice.Interval where
 
 import Prelude
-import Data.Lattice (class JoinSemilattice)
+import Data.Semilattice.Join (class JoinSemilattice)
 import Data.Lattice.Max (Max (..))
 import Data.Lattice.Min (Min (..))
 import Test.QuickCheck (class Arbitrary, arbitrary)
 
--- | An interval is a pair of an upper and a lower bound. We combine intervals
--- by picking the greatest lower bound and the smallest upper bound, thus
--- effectively "tightening" the interval. Should the lower bound ever be
--- smaller than the upper bound, we consider this "impossible" (effectively a
--- contradiction).
---
--- Intervals are useful when calculating a value from multiple sources with
--- differing error margins, as well as modelling optimising calculations.
 data Interval (element ∷ Type)
   = Interval
       { lower ∷ Max element
@@ -24,6 +16,12 @@ data Interval (element ∷ Type)
 
 derive instance eqInterval  ∷ Eq element ⇒ Eq (Interval element)
 derive instance ordInterval ∷ Ord element ⇒ Ord (Interval element)
+
+instance showInterval
+    ∷ Show element ⇒ Show (Interval element) where
+  show = case _ of
+    Interval { lower, upper } → show lower <> " .. " <> show upper
+    Impossible                → "Impossible"
 
 instance semigroupInterval
     ∷ Ord element ⇒ Semigroup (Interval element) where
