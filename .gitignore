@@ -1,5 +1,6 @@
 *~
 .spago/
+.psci_modules/
 .stack-work/
 output
 talk.cabal

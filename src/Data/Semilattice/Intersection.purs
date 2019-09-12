@@ -1,4 +1,4 @@
-module Data.Lattice.Intersection where
+module Data.Semilattice.Intersection where
 
 import Data.Enum (class BoundedEnum, upFromIncluding)
 import Data.Semilattice.Join (class JoinSemilattice)
@@ -8,13 +8,17 @@ import Data.Set as Set
 import Prelude
 import Test.QuickCheck (class Arbitrary, arbitrary)
 
+-- Intersection keeps track of possible answers from a set, and discards
+-- answers as we calculate. Appending is by intersection, and `mempty` is the
+-- full set of values for a type (so be careful with something like
+-- `Intersection Int`!)
 newtype Intersection (element ∷ Type)
   = Intersection (Set element)
 
-derive         instance newtypeIntersection ∷ Newtype (Intersection element) _
-derive newtype instance eqIntersection      ∷ Eq element   ⇒ Eq (Intersection element)
-derive newtype instance ordIntersection     ∷ Ord element  ⇒ Ord (Intersection element)
-derive newtype instance showIntersection    ∷ Show element ⇒ Show (Intersection element)
+derive instance newtypeIntersection ∷ Newtype (Intersection element) _
+derive newtype instance eqIntersection ∷ Eq element ⇒ Eq (Intersection element)
+derive newtype instance ordIntersection ∷ Ord element ⇒ Ord (Intersection element)
+derive newtype instance showIntersection ∷ Show element ⇒ Show (Intersection element)
 
 instance semigroupIntersection
     ∷ Ord element ⇒ Semigroup (Intersection element) where
@@ -23,13 +27,10 @@ instance semigroupIntersection
 
 instance monoidIntersection
     ∷ BoundedEnum element ⇒ Monoid (Intersection element) where
-  mempty = Intersection
-    $ (Set.fromFoldable (upFromIncluding bottom ∷ Array element))
+  mempty = Intersection (Set.fromFoldable (upFromIncluding bottom ∷ Array _))
 
 instance joinSemilatticeIntersection
-    ∷ BoundedEnum element ⇒ JoinSemilattice (Intersection element) where
-  order (Intersection this) (Intersection that)
-    = compare (Set.size that) (Set.size this)
+    ∷ BoundedEnum element ⇒ JoinSemilattice (Intersection element)
 
 instance arbitraryIntersection
     ∷ (Arbitrary element, Ord element)

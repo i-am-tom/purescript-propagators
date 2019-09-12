@@ -1,20 +1,22 @@
-{-
-Welcome to a Spago project!
-You can edit this file as you like.
--}
 { name =
-    "my-project"
+    "propagators"
 , dependencies =
     [ "aff"
     , "behaviors"
     , "console"
+    , "debug"
     , "drawing"
     , "effect"
     , "enums"
     , "exists"
+    , "indexed-monad"
     , "ordered-collections"
+    , "profunctor-lenses"
     , "psci-support"
+    , "quickcheck-combinators"
+    , "quickcheck-laws"
     , "spec"
+    , "spec-discovery"
     , "spec-quickcheck"
     , "st"
     , "tuples"

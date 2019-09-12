@@ -1,4 +1,4 @@
-module Data.Lattice.Defined where
+module Data.Semilattice.Defined where
 
 import Data.Semilattice.Join (class JoinSemilattice)
 import Data.NonEmpty ((:|), NonEmpty)
@@ -8,6 +8,10 @@ import Prelude
 import Test.QuickCheck (class Arbitrary, arbitrary)
 import Test.QuickCheck.Gen (elements)
 
+-- | One of the neatest semilattices: this cell contains a value we either "know
+-- nothing about", "definitely 100% know", or "have conflicting reports". This
+-- is also the order of ascension through the semilattice: knowing nothing,
+-- knowing something, knowing too many things.
 data Defined (element ∷ Type)
   = Unknown
   | Known element
@@ -73,17 +77,7 @@ instance monoidDefined
   mempty = Unknown
 
 instance joinSemilatticeDefined
-    ∷ Ord element ⇒ JoinSemilattice (Defined element) where
-  order = case _, _ of
-    Unknown,         Unknown → EQ
-    Known _,         Known _ → EQ
-    Contradiction _, Contradiction _ → EQ
-
-    Unknown, _ → LT
-    _, Unknown → GT
-
-    Contradiction _, _ → GT
-    _, Contradiction _ → LT
+    ∷ Ord element ⇒ JoinSemilattice (Defined element)
 
 binary ∷ ∀ a. Ord a ⇒ (a → a → a) → Defined a → Defined a → Defined a
 binary f = case _, _ of

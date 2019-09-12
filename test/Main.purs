@@ -9,9 +9,13 @@ import Test.Spec.Runner (runSpec)
 
 main :: Effect Unit
 main = launchAff_ do
-  lattice    ← discover "Data\\.Lattice\\..*Spec"
-  propagator ← discover "Data\\.Propagator\\..*Spec"
+  network     ← discover "Control\\.Monad\\.NetworkSpec"
+--lattice     ← discover "Data\\.Lattice\\..*Spec"
+  propagator  ← discover "Data\\.PropagatorSpec"
+  semilattice ← discover "Data\\.Semilattice\\..*Spec"
 
   runSpec [ consoleReporter ] do
-    lattice
+    network
+--  lattice
     propagator
+    semilattice

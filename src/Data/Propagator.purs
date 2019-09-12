@@ -1,268 +1,247 @@
-module Data.Propagator where
+module Data.Propagator
+  ( Propagator
 
-import Control.Monad.ST (ST, run)
+  , backwards
+  , emit
+  , forwards
+  , lower
+  , raise
+  ) where
+
+import Control.Monad.ST.Internal (kind Region)
 import Data.Exists (Exists, mkExists, runExists)
 import Data.HeytingAlgebra (tt, ff, implies)
-import Data.Lattice (class JoinSemilattice)
-import Data.Propagator.Cell (class MonadCell, Cell)
-import Data.Propagator.Cell as Cell
+import Data.Semilattice.Join (class JoinSemilattice)
+import Data.Semilattice.Truth as Truth
+import Control.Monad.Network (Network, Cell)
+import Control.Monad.Network as Network
 import Prelude
-import Unsafe.Coerce (unsafeCoerce)
 
--- | A propagator is a relationship _between_ cells. Strictly, the relationship
--- must be monotonic in all active directions. Wait, did I say directions
--- _plural_?
+-- A `Propagator` is a "monotone function between join semilattices". This
+-- rather dense statement is explained in more detail in the documentation for
+-- `Data.Semilattice.Join`.
 --
--- Because we are effectively writing some auto-wiring between a set of cells,
--- there's no reason why a function has to go only from input to output: if
--- it be injective, we could go from output to input! Within the propagator's
--- internals, we can describe as many relationships as we like, and then
--- compose propagators to build networks of knowledge-sharing cells.
+-- We can take a simpler approach to propagators, however, and use a slightly
+-- more hand-wavey definition: a propagator is a function that communicates (or
+-- "propagates") knowledge throughout a set of cells. In other words, they are
+-- the abstraction by which we share information in our network.
 --
--- Propagators form very, very interesting instances for many of our standard
--- classes. Namely, because we have access to the output cell when wiring up,
--- we can add in as many relationships as we can establish. So, for example, `a
--- + b = c` also gives us `c - a = b` and `c - b = a` for free. Thus, when you
--- establish a `(+)` relationship between three cells, you will always get the
--- third value given any two.
-data Propagator (context ∷ Type → Type) (cell ∷ Type → Type) (output ∷ Type)
-
-  -- | A nullary propagator has no "inputs". Really, we could call it an
-  -- "emitter": it describes a single cell that can be entirely standalone.
-  = Nullary (context (cell output))
-
-  -- | A unary propagator is a relationship between two cells, which we may
-  -- traditionally have labelled "input" and "output". As we'll see, however,
-  -- there's not always a good reason why we should have to designate a single
-  -- direction to the relationship. We existentialise one of the cells, simply
-  -- because it gives us access to a few typeclasses that may become useful.
-  | Unary (Exists (Unary_ context cell output))
-
-  -- | Finally, the binary propagator gives us a way of building functions
-  -- between any number of cells. Here, we can specify more complex
-  -- relationships, while enjoying composition of networks.
-  | Binary (Exists2 (Binary_ context cell output))
-
--- | A non-existential Unary propagator has two cells, which we've crudely
--- named "input" and "output" (though, as we will see, these names are
--- meaningless in a lot of cases).
+-- Following Kmett's formulation, we have three types of propagator that are
+-- interesting enough to be constructors in their own right:
 --
--- Note that we provide a pre-made cell for this, as the absence of GADTs means
--- we can't package up a proof of `JoinSemilattice output`. Given that this only
--- causes a problem in `lower` when we want to make an output cell, we just
--- include the output cell in the constructor.
-data Unary_ context cell output input
-  = Unary_ (cell input → cell output → context Unit)
-           (context (cell output))
-           (Propagator context cell input)
-
--- | A non-existential Binary propagator, which we can use to express a
--- relationship between three cells. We call it "binary" to adhere to the
--- traditional intuition of a binary function having "two inputs", rather than
--- being a relationship between "three values".
+-- * Nullary. I've coined the term "emitters" for these: effectively, these are
+--   outputs without input. Typically, these will indicate constant values
+--   (e.g. numeric constants or pre-established facts), and are not influenced
+--   by outside information.
 --
--- Again, we must include this pre-made output cell to avoid the problems
--- caused by an absence of `JoinSemilattice output` proof.
-data Binary_ context cell output this that
-  = Binary_ (cell this → cell that → cell output → context Unit)
-            (context (cell output))
-            (Propagator context cell this) 
-            (Propagator context cell that)
+-- * Unary. Unary propagators are relationships between two cells. If that
+--   sounds unfamiliar, consider the unary function `not` as being a
+--   relationship between the input and the output. Unary, for our purposes,
+--   means "two". _Sorry_. We'd also shy away from using the terms "input" and
+--   "output", because data can (and, ideally, does) move in both directions
+--   when propagators fire.
+--
+-- * Binary. Binary propagators are relationships between _three_ cells. Again,
+--   think about `(&&)` as a relationship between two inputs and an output.
+--   Similar to unary cells, information can travel in all directions: if I
+--   know `x + y = z` and I know `y` and `z`, why shouldn't I be able to known
+--   `x`?
+data Propagator (r ∷ Region) (x ∷ Type)
+  = Nullary (Network r (Cell r x))
+  | Unary (Exists (Unary_ r x))
+  | Binary (Exists (Binary1 r x))
 
--- | Short-hand for construction of a nullary propagator. This doesn't need to
--- exist as this is an alias for the Nullary constructor, but it's here for
--- consistency.
-nullary
-  ∷ ∀ context cell output
-  . context (cell output)
-  → Propagator context cell output
+data Unary_ (r ∷ Region) (output ∷ Type) (input ∷ Type)
+  = Unary_ (Cell r input → Cell r output → Network r Unit)
+           (Network r (Cell r output)) (Propagator r input)
 
-nullary = Nullary
+data Binary_ (r ∷ Region) (output ∷ Type) (left ∷ Type) (right ∷ Type)
+  = Binary_ (Cell r left → Cell r right → Cell r output → Network r Unit)
+            (Network r (Cell r output)) (Propagator r left) (Propagator r right)
 
--- | Short-hand for construction of a unary propagator. This gives us a way of
--- lifting a two-cell relationship into a propagator.
+newtype Binary1 (r ∷ Region) (output ∷ Type) (left ∷ Type)
+  = Binary1 (Exists (Binary_ r output left))
+
+-- Create a unary propagator from a relationship between two cells. These
+-- relationships are probably most easily established in conjunction with the
+-- `binary` function from `Control.Monad.Network`:
+--
+-- ```
+-- eg0 ∷ ∀ r. Propagator r input → Propagator r output
+-- eg0 = unary (Network.unary (_ + Max 5))
+-- ```
+--
+-- ... but, again, we could make this much more useful by adding the inverse:
+--
+-- ```
+-- eg1 ∷ ∀ r. Propagator r input → Propagator r output
+-- eg1 = unary \x y → do
+--   Network.unary (_ + Max 5) x y
+--   Network.unary (_ - Max 5) y x
+-- ```
+--
+-- Now, whenever _one_ of these cells receives new information, so will the
+-- other - computation flows in both directions!
 unary
-  ∷ ∀ context cell input output
+  ∷ ∀ r input output
   . JoinSemilattice output
-  ⇒ MonadCell cell context
-  ⇒ (cell input → cell output → context Unit)
-  → Propagator context cell input
-  → Propagator context cell output
+  ⇒ (Cell r input → Cell r output → Network r Unit)
+  → Propagator r input
+  → Propagator r output
+unary go = Unary <<< mkExists <<< Unary_ go Network.make
 
-unary go = Unary <<< mkExists <<< Unary_ go Cell.make
-
--- | Short-hand for construction of a binary propagator. With `unary` and
--- `binary`, we have enough vocabulary to express relationships between any
--- number of cells.
+-- Create a binary propagator from a relationship between three cells. This is
+-- easiest to do with the `binary` function from `Control.Monad.Network`; see
+-- the above docs for `unary` for examples of usage.
 binary
-  ∷ ∀ context cell this that output
-  . JoinSemilattice output
-  ⇒ MonadCell cell context
-  ⇒ (cell this → cell that → cell output → context Unit)
-  → Propagator context cell this
-  → Propagator context cell that
-  → Propagator context cell output
-
+  ∷ ∀ r x y o
+  . JoinSemilattice o
+  ⇒ (Cell r x → Cell r y → Cell r o → Network r Unit)
+  → Propagator r x
+  → Propagator r y
+  → Propagator r o
 binary go this that
-  = Binary (mkExists2 (Binary_ go Cell.make this that))
+  = Binary (mkExists (Binary1 (mkExists (Binary_ go Network.make this that))))
 
 instance semiringPropagator
-    ∷ ( Eq content
-      , EuclideanRing content
-      , JoinSemilattice content
-      , MonadCell cell context
-      )
-    ⇒ Semiring (Propagator context cell content) where
-
+    ∷ (Eq x, EuclideanRing x, JoinSemilattice x, Show x)
+    ⇒ Semiring (Propagator r x) where
   add = binary \x y z → do
-    Cell.lift2 (+) x y z
-    Cell.lift2 (-) z x y
-    Cell.lift2 (-) z y x
+    Network.binary (+) x y z
+    Network.binary (-) z x y
+    Network.binary (-) z y x
 
   mul = binary \x y z → do
-    Cell.lift2 (*) x y z
+    Network.binary (*) x y z
 
-    Cell.watch z \c →
-      if c == zero then do
-        Cell.watch x \a → when (a /= zero) do Cell.write y zero
-        Cell.watch y \b → when (b /= zero) do Cell.write x zero
-      else do
-        Cell.watch x \a → Cell.write y (c / a)
-        Cell.watch y \b → Cell.write x (c / b)
+    let divisor a b
+          | b == zero, a /= zero = zero
+          | b == zero            = mempty
+          | otherwise            = b / a
 
-  one  = Nullary (Cell.fill  one)
-  zero = Nullary (Cell.fill zero)
+    Network.binary divisor x z y
+    Network.binary divisor y z x
+
+  one  = emit one
+  zero = emit zero
 
 instance ringPropagaor
-    ∷ ( Eq content
+    ∷ ( Show content, Eq content
       , EuclideanRing content
       , JoinSemilattice content
-      , MonadCell cell context
       )
-    ⇒ Ring (Propagator context cell content) where
+    ⇒ Ring (Propagator r content) where
   sub = binary \x y z → do
-    Cell.lift2 (-) x y z
-    Cell.lift2 (-) x z y
-    Cell.lift2 (+) z y x
+    Network.binary (-) x y z
+    Network.binary (-) x z y
+    Network.binary (+) z y x
 
 instance commutativeRingPropagator
-    ∷ ( Eq content
+    ∷ ( Show content, Eq content
       , CommutativeRing content
       , EuclideanRing content
       , JoinSemilattice content
-      , MonadCell cell context
       )
-    ⇒ CommutativeRing (Propagator context cell content)
+    ⇒ CommutativeRing (Propagator r content)
 
 instance divisionRingPropagator
     ∷ ( DivisionRing content
-      , Eq content
+      , Show content, Eq content
       , EuclideanRing content
       , JoinSemilattice content
-      , MonadCell cell context
       )
-    ⇒ DivisionRing (Propagator context cell content) where
+    ⇒ DivisionRing (Propagator r content) where
   recip = unary \x y → do
-    Cell.lift recip x y
-    Cell.lift recip y x
+    Network.unary recip x y
+    Network.unary recip y x
 
 instance euclideanRingPropagator
-    ∷ ( Eq content
+    ∷ ( Eq content, Show content
       , EuclideanRing content
       , JoinSemilattice content
-      , MonadCell cell context
       )
-    ⇒ EuclideanRing (Propagator context cell content) where
+    ⇒ EuclideanRing (Propagator r content) where
   degree _ = 1
 
   div = binary \z y x → do
-    Cell.lift2 (*) x y z
+    Network.binary (*) x y z
 
-    Cell.watch z \c →
-      if c == zero then do
-        Cell.watch x \a → when (a /= zero) do Cell.write y zero
-        Cell.watch y \b → when (b /= zero) do Cell.write x zero
-      else do
-        Cell.watch x \a → Cell.write y (c / a)
-        Cell.watch y \b → Cell.write x (c / b)
+    let divisor a b
+          | b == zero, a /= zero = zero
+          | b == zero            = mempty
+          | otherwise            = b / a
 
-  mod = binary (Cell.lift2 mod)
+    Network.binary divisor x z y
+    Network.binary divisor y z x
+
+  mod = binary (Network.binary mod)
 
 instance semigroupPropagator
-    ∷ ( JoinSemilattice content
-      , MonadCell cell context
-      )
-    ⇒ Semigroup (Propagator context cell content) where
-  append = binary (Cell.lift2 append)
+    ∷ (JoinSemilattice content, Show content, Eq content)
+    ⇒ Semigroup (Propagator r content) where
+  append = binary (Network.binary append)
 
 instance monoidPropagator
-    ∷ ( JoinSemilattice content
-      , MonadCell cell context
-      )
-    ⇒ Monoid (Propagator context cell content) where
-  mempty = Nullary (Cell.fill mempty)
+    ∷ (JoinSemilattice content, Show content, Eq content)
+    ⇒ Monoid (Propagator r content) where
+  mempty = emit mempty
 
 instance booleanAlgebraPropagator
     ∷ ( BooleanAlgebra content
-      , Eq content
+      , Show content, Eq content
       , JoinSemilattice content
-      , MonadCell cell context
       )
-    ⇒ BooleanAlgebra (Propagator context cell content)
+    ⇒ BooleanAlgebra (Propagator r content)
 
 instance heytingAlgebraPropagator
-    ∷ ( Eq content
+    ∷ ( Show content, Eq content
       , HeytingAlgebra content
       , JoinSemilattice content
-      , MonadCell cell context
       )
-    ⇒ HeytingAlgebra (Propagator context cell content) where
-  ff = Nullary (Cell.fill ff)
-  tt = Nullary (Cell.fill tt)
+    ⇒ HeytingAlgebra (Propagator r content) where
+  ff = emit ff
+  tt = emit tt
 
   implies = binary \x y z → do
-    Cell.lift2 implies x y z
-
-    Cell.watch2 x z \a c → when          (a == tt) do Cell.write y      c
-    Cell.watch2 y z \b c → unless ((b && c) == tt) do Cell.write x (not c)
+    Network.binary implies x y z
+    Network.binary (\a c → if  a       == tt then     c else mempty) x z y
+    Network.binary (\b c → if (b && c) == tt then not c else mempty) y z x
 
   conj = binary \x y z → do
-    Cell.lift2 conj x y z
+    Network.binary conj x y z
 
-    Cell.watch2 x z \a c → when (a == tt) do Cell.write y c
-    Cell.watch2 y z \b c → when (b == tt) do Cell.write x c
+    let conj' a b = if a == tt then b else mempty
+    Network.binary conj' x z y
+    Network.binary conj' y z x
 
   disj = binary \x y z → do
-    Cell.lift2 disj x y z
+    Network.binary disj x y z
 
-    Cell.watch2 x z \a c → unless (a == tt) do Cell.write y c
-    Cell.watch2 y z \b c → unless (b == tt) do Cell.write x c
+    let disj' a b = if a == ff then b else mempty
+    Network.binary disj' x z y
+    Network.binary disj' y z x
 
   not = unary \x y → do
-    Cell.lift not x y
-    Cell.lift not y x
+    Network.unary not x y
+    Network.unary not y x
 
--- | Any cell can be lifted into a propagator as a nullary propagator (or, as
--- we've known it a couple times, an "emitter"). This lifts the cell into the
--- context, and then applies the `Nullary` constructor.
-raise
-  ∷ ∀ cell content context
-  . MonadCell cell context
-  ⇒ cell content
-  → Propagator context cell content
-
+-- Raise a cell into a unary propagator, so that its value can be used within
+-- propagator computations. Note that, for nullary propagators, `lower` is the
+-- inverse function.
+raise ∷ ∀ r content. Cell r content → Propagator r content
 raise = Nullary <<< pure
 
--- | We can also always "lower" the output cell from a propagator by creating a
--- fresh cell, applying the wiring, and then just returning that pre-prepared
--- cell for use. This and `raise` mean we can change our approach depending on
--- the needs we might have, though `Propagator` values are preferred as a more
--- composable way to construct networks.
+-- Extract an "output cell" from a propagator. While wiring may happen in all
+-- directions, the class instances of `Propagator` rely on the "output cell"
+-- being the visible type parameter.
+--
+-- Ideally, the output cell would be constructed within this function, but a
+-- lack of GADTs means we can't "prove" `JoinSemilattice` for the existentials
+-- in `Unary` or `Binary`.
 lower
-  ∷ ∀ cell content context
-  . MonadCell cell context
-  ⇒ Propagator context cell content
-  → context (cell content)
+  ∷ ∀ r content
+  . Propagator r content
+  → Network r (Cell r content)
 
 lower = case _ of
   Nullary emitter → emitter
@@ -276,110 +255,98 @@ lower = case _ of
       pure output
 
   Binary existential → do
-    existential # runExists2 \(Binary_ f cell this that) → do
-      c ← cell
-      a ← lower this
-      b ← lower that
+    existential # runExists \(Binary1 existential') →
+      existential' # runExists \(Binary_ f cell this that) → do
+        c ← cell
+        a ← lower this
+        b ← lower that
 
-      f a b c
-      pure c
+        f a b c
+        pure c
 
--- | We can lift any value into a propagator context by first creating a cell,
--- and then raising that cell into a nullary propagator. This is helpful, for
--- example, when we come to numerical constants.
+-- Create a nullary propagator to "emit" some constant value, initially
+-- uninfluenced by the surroundings.
 emit
-  ∷ ∀ cell content context
+  ∷ ∀ r content
   . JoinSemilattice content
-  ⇒ MonadCell cell context
+  ⇒ Show content ⇒ Eq content
   ⇒ content
-  → Propagator context cell content
+  → Propagator r content
 
-emit = Nullary <<< Cell.fill
+emit value = Nullary do
+  fresh ← Network.make
+  Network.write fresh (Truth.assert value)
 
--- | Given a function between propagators, we can "raise" a cell with the input
--- inside and read the output cell (gleaned from lowering the resultant
--- propagator).
+  pure fresh
+
+-- Let's imagine we have a function between propagators like this:
+--
+-- ```
+-- let go ∷ ∀ r. Propagator r (Max Int) → Propagator r (Max Int)
+--     go x = x + emit (Max 10)
+-- ```
+--
+-- The `forwards` function allows us to apply this function to a regular,
+-- non-propagator argument, in order to produce a regular, non-propagator
+-- result.
+--
+-- ```
+-- Network.run (forwards go (Max 5)) -- Max 15
+-- ```
+--
+-- In systems with one user-provided input and a single answer to produce, this
+-- can be a nice interface for "hiding" the propagator abstraction from your
+-- users.
 forwards
-  ∷ ∀ cell context this that
+  ∷ ∀ r this that
   . JoinSemilattice this
-  ⇒ MonadCell cell context
-  ⇒ ( Propagator context cell this
-    → Propagator context cell that
+  ⇒ Show this ⇒ Eq this
+  ⇒ JoinSemilattice that
+  ⇒ Show that ⇒ Eq that
+  ⇒ ( ∀ s
+    . Propagator s this
+    → Propagator s that
     )
   → this
-  → context that
+  → Network r that
 
 forwards f value = do
-  input  ← Cell.make
+  input  ← Network.make
   output ← lower (f (raise input))
 
-  Cell.write input value
-  Cell.read  output
+  Network.write input (Truth.assert value)
+  Network.read  output
 
--- | Far more interestingly, however, we can "raise" a cell with the /output/
--- inside and read the input cell, as long as our computation's relationships
--- are bidirectional (for example, an arithmetic calculation).
+-- If our propagator network's information flows in more than one direction,
+-- why limit ourselves to supplying inputs? If we take the same function as we
+-- saw with `forwards`, we can use `backwards` to pass it an _output_ and
+-- compute an input.
+--
+-- ```
+-- Network.run (backwards go (Max 15)) -- Max 5
+-- ```
+--
+-- Of course, we've seen elsewhere that we describe the contents of cells as
+-- _descriptions_ of a value, and so the answer produced by `forwards` and
+-- `backwards` may be more general than the one you're expecting, but never in
+-- contradiction to it (unless your inputs are not all trustworthy, which may
+-- require you to make retractions before obtaining a good answer).
 backwards
-  ∷ ∀ cell context this that
+  ∷ ∀ r this that
   . JoinSemilattice this
+  ⇒ Show this ⇒ Eq this
   ⇒ JoinSemilattice that
-  ⇒ MonadCell cell context
-  ⇒ ( Propagator context cell this
-    → Propagator context cell that
+  ⇒ Show that ⇒ Eq that
+  ⇒ ( ∀ s
+    . Propagator s this
+    → Propagator s that
     )
   → that
-  → context this
+  → Network r this
 
 backwards f value = do
-  input  ← Cell.make
+  input  ← Network.make
   output ← lower (f (raise input))
 
-  Cell.write output value
-  Cell.read  input
-
--- | Specialising `context` to `ST r` means we can run the computation and
--- remove the context entirely.
-forwards_
-  ∷ ∀ this that
-  . JoinSemilattice this
-  ⇒ ( ∀ r
-    . Propagator (ST r) (Cell r) this
-    → Propagator (ST r) (Cell r) that
-    )
-  → this
-  → that
-
-forwards_ f x = run (forwards f x)
-
--- | Similarly, `ST r` allows us to write this function that _seems_ to run a
--- function in reverse. In reality, the relationship between "input" and
--- "output" has no real direction, so there's nothing more special about this
--- than `forwards_`. Still, it's a neat party trick.
-backwards_
-  ∷ ∀ this that
-  . JoinSemilattice this
-  ⇒ JoinSemilattice that
-  ⇒ ( ∀ r
-    . Propagator (ST r) (Cell r) this
-    → Propagator (ST r) (Cell r) that
-    )
-  → that
-  → this
-
-backwards_ f x = run (backwards f x)
-
--------------------------------------------------------------------------------
-
--- | We need a double existential for the binary property, and this is much
--- easier than all the intermediary newtype business that a single existential
--- would require.
-foreign import data Exists2 ∷ (Type → Type → Type) → Type
-
--- | Make a double existential.
-mkExists2 ∷ ∀ f a b. f a b → Exists2 f
-mkExists2 = unsafeCoerce
-
--- | Unpack a double existential.
-runExists2 ∷ ∀ f r. (∀ a b. f a b → r) → Exists2 f → r
-runExists2 = unsafeCoerce
-
+  Network.write output (Truth.assert value)
+  Network.read  input
