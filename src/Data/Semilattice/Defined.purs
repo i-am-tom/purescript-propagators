@@ -1,132 +1,90 @@
 module Data.Semilattice.Defined where
 
+import Data.Generic.Rep (class Generic, from)
+import Data.Generic.Rep.Show (genericShow)
 import Data.Semilattice.Join (class JoinSemilattice)
-import Data.NonEmpty ((:|), NonEmpty)
-import Data.Set (Set)
-import Data.Set as Set
 import Prelude
-import Test.QuickCheck (class Arbitrary, arbitrary)
-import Test.QuickCheck.Gen (elements)
+import Test.QuickCheck (class Arbitrary)
+import Test.QuickCheck.Arbitrary (class Coarbitrary, genericArbitrary, coarbitrary)
 
--- | One of the neatest semilattices: this cell contains a value we either "know
--- nothing about", "definitely 100% know", or "have conflicting reports". This
--- is also the order of ascension through the semilattice: knowing nothing,
--- knowing something, knowing too many things.
-data Defined (element ∷ Type)
+data Defined (x ∷ Type)
   = Unknown
-  | Known element
-  | Contradiction (Set element)
+  | Known x
+  | Contradiction
 
-instance eqDefined ∷ Eq element ⇒ Eq (Defined element) where
-  eq (Unknown        ) (Unknown        ) = true
-  eq (Known x        ) (Known y        ) = x == y
-  eq (Contradiction _) (Contradiction _) = true
-  eq  _                 _                = false
+derive instance eqDefined ∷ Eq x ⇒ Eq (Defined x)
+derive instance functorDefined ∷ Functor Defined
+derive instance genericDefined ∷ Generic (Defined x) _
+derive instance ordDefined ∷ Ord x ⇒ Ord (Defined x)
 
-instance ordDefined ∷ Ord element ⇒ Ord (Defined element) where
-  compare (Unknown        ) (Unknown        ) = EQ
-  compare (Unknown        )  _                = LT
-  compare _                 (Unknown        ) = GT
-  compare (Known x        ) (Known y        ) = compare x y
-  compare (Contradiction _) (Contradiction _) = EQ
-  compare (Contradiction _)  _                = GT
-  compare _                 (Contradiction _) = LT
-
-instance showDefined ∷ Show element ⇒ Show (Defined element) where
-  show = case _ of
-    Unknown          → "Unknown"
-    Known x          → "Known "         <> show x
-    Contradiction xs → "Contradiction " <> show xs
-
-instance arbitraryDefined
-    ∷ ( Arbitrary element
-      , Ord element
-      )
-    ⇒ Arbitrary (Defined element) where
-  arbitrary = do
-    content                           ← arbitrary
-    failures ∷ NonEmpty Array element ← arbitrary
-
-    elements $ Unknown :|
-      [ Known content
-      , Contradiction (Set.fromFoldable failures)
-      ]
+instance showDefined ∷ Show x ⇒ Show (Defined x) where
+  show = genericShow
 
 instance semigroupDefined
-    ∷ Ord element
-    ⇒ Semigroup (Defined element) where
+    ∷ Eq x
+    ⇒ Semigroup (Defined x) where
   append = case _, _ of
-    Unknown, that → that
     this, Unknown → this
+    Unknown, that → that
 
-    Known this, Known that
-      | this == that → Known this
-      | otherwise    → Contradiction (Set.fromFoldable [this, that])
+    Known x, Known y
+      | x == y    → Known x
+      | otherwise → Contradiction
 
-    Contradiction this, Contradiction that →
-      Contradiction (this <> that)
+    Contradiction, _ → Contradiction
+    _, Contradiction → Contradiction
 
-    Contradiction this, _ →
-      Contradiction this
-
-    _, Contradiction that →
-      Contradiction that
+binary ∷ ∀ x. (x → x → x) → Defined x → Defined x → Defined x
+binary f = case _, _ of
+  Unknown,       x             → x
+  x,             Unknown       → x
+  Known x,       Known y       → Known (f x y)
+  Contradiction, _             → Contradiction
+  _,             Contradiction → Contradiction
 
 instance monoidDefined
-    ∷ Ord element ⇒ Monoid (Defined element) where
+    ∷ Eq x
+    ⇒ Monoid (Defined x) where
   mempty = Unknown
 
 instance joinSemilatticeDefined
-    ∷ Ord element ⇒ JoinSemilattice (Defined element)
+  ∷ Eq x
+  ⇒ JoinSemilattice (Defined x)
 
-binary ∷ ∀ a. Ord a ⇒ (a → a → a) → Defined a → Defined a → Defined a
-binary f = case _, _ of
-  Known this,      Known that      → Known (f this that)
+instance arbitraryDefined
+    ∷ Arbitrary x
+    ⇒ Arbitrary (Defined x) where
+  arbitrary = genericArbitrary
 
-  Contradiction x, Contradiction y → Contradiction (x <> y)
-  Contradiction x, _               → Contradiction  x
-  _,               Contradiction y → Contradiction       y
-
-  Unknown,         that            → that
-  this,            Unknown         → this
+instance coarbitraryDefined
+    ∷ Coarbitrary x
+    ⇒ Coarbitrary (Defined x) where
+  coarbitrary x = coarbitrary (from x)
 
 instance commutativeRingDefined
-  ∷ ( CommutativeRing element
-    , Ord element
-    )
-  ⇒ CommutativeRing (Defined element)
+  ∷ CommutativeRing x
+  ⇒ CommutativeRing (Defined x)
 
 instance divisionRingDefined
-    ∷ ( DivisionRing element
-      , Ord element
-      )
-    ⇒ DivisionRing (Defined element) where
-  recip = case _ of
-    Known x         → Known (recip x)
-    Unknown         → Unknown
-    Contradiction x → Contradiction x
+    ∷ DivisionRing x
+    ⇒ DivisionRing (Defined x) where
+  recip = map recip
 
 instance euclideanRingDefined
-    ∷ ( EuclideanRing element
-      , Ord element
-      )
-    ⇒ EuclideanRing (Defined element) where
+    ∷ EuclideanRing x
+    ⇒ EuclideanRing (Defined x) where
   degree _ = 1
-  div      = binary div
-  mod      = binary mod
+  div = binary div
+  mod = binary mod
 
 instance ringDefined
-    ∷ ( Ord element
-      , Ring element
-      )
-    ⇒ Ring (Defined element) where
+    ∷ Ring x
+    ⇒ Ring (Defined x) where
   sub = binary sub
 
 instance semiringDefined
-    ∷ ( Ord element
-      , Semiring element
-      )
-    ⇒ Semiring (Defined element) where
+    ∷ Semiring x
+    ⇒ Semiring (Defined x) where
   add  = binary add
   mul  = binary mul
   one  = Known one

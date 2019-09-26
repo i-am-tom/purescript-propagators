@@ -8,33 +8,28 @@ import Data.Set as Set
 import Prelude
 import Test.QuickCheck (class Arbitrary, arbitrary)
 
--- Intersection keeps track of possible answers from a set, and discards
--- answers as we calculate. Appending is by intersection, and `mempty` is the
--- full set of values for a type (so be careful with something like
--- `Intersection Int`!)
-newtype Intersection (element ∷ Type)
-  = Intersection (Set element)
+newtype Intersection (x ∷ Type)
+  = Intersection (Set x)
 
-derive instance newtypeIntersection ∷ Newtype (Intersection element) _
-derive newtype instance eqIntersection ∷ Eq element ⇒ Eq (Intersection element)
-derive newtype instance ordIntersection ∷ Ord element ⇒ Ord (Intersection element)
-derive newtype instance showIntersection ∷ Show element ⇒ Show (Intersection element)
+derive instance newtypeIntersection ∷ Newtype (Intersection x) _
+derive newtype instance eqIntersection ∷ Eq x ⇒ Eq (Intersection x)
+derive newtype instance ordIntersection ∷ Ord x ⇒ Ord (Intersection x)
+derive newtype instance showIntersection ∷ Show x ⇒ Show (Intersection x)
 
-instance semigroupIntersection
-    ∷ Ord element ⇒ Semigroup (Intersection element) where
+instance semigroupIntersection ∷ Ord x ⇒ Semigroup (Intersection x) where
   append (Intersection this) (Intersection that)
     = Intersection (Set.intersection this that)
 
-instance monoidIntersection
-    ∷ BoundedEnum element ⇒ Monoid (Intersection element) where
+instance monoidIntersection ∷ BoundedEnum x ⇒ Monoid (Intersection x) where
   mempty = Intersection (Set.fromFoldable (upFromIncluding bottom ∷ Array _))
 
 instance joinSemilatticeIntersection
-    ∷ BoundedEnum element ⇒ JoinSemilattice (Intersection element)
+  ∷ BoundedEnum x
+  ⇒ JoinSemilattice (Intersection x)
 
 instance arbitraryIntersection
-    ∷ (Arbitrary element, Ord element)
-    ⇒ Arbitrary (Intersection element) where
+    ∷ (Arbitrary x, Ord x)
+    ⇒ Arbitrary (Intersection x) where
   arbitrary = do
-    elements ∷ Array element ← arbitrary
-    pure (Intersection (Set.fromFoldable elements))
+    xs ∷ Array x ← arbitrary
+    pure (Intersection (Set.fromFoldable xs))
